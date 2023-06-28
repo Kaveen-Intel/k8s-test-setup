@@ -5,6 +5,7 @@
   - [Tools to install K8s](#tools-to-install-k8s)
   - [Machine Prerequisites](#machine-prerequisites)
   - [Where to run commands](#where-to-run-commands)
+  - [Improvements to make!](#improvements-to-make)
 - [Container runtime](#container-runtime)
   - [Overview](#overview)
   - [Installation](#installation)
@@ -16,7 +17,7 @@
   - [Initialize cluster (Run only in masters)](#initialize-cluster-run-only-in-masters)
   - [Pod network add-on](#pod-network-add-on)
   - [Joining worker nodes (Only run in workers)](#joining-worker-nodes-only-run-in-workers)
-  - [Label roles of worker nodes (Only run in masters)](#label-roles-of-worker-nodes-only-run-in-masters)
+  - [Label roles of worker nodes (Run in any machine with kubectl and sufficent permissions)](#label-roles-of-worker-nodes-run-in-any-machine-with-kubectl-and-sufficent-permissions)
 - [Install Helm (wherever you want it to be)](#install-helm-wherever-you-want-it-to-be)
 - [Install K8s Dashboard](#install-k8s-dashboard)
 - [Install Prometheus (This is very manual, implement dynamic provisioning!)](#install-prometheus-this-is-very-manual-implement-dynamic-provisioning)
@@ -68,6 +69,32 @@
 ### Where to run commands
 
 Execute on all nodes unless otherwise stated
+
+<br>
+
+### Improvements to make!
+<br>
+
+**Certs/TLS related**
+1. Install ACME like cert-manager
+2. Install Ingress controller
+3. Create Ingress -> Define rules -> Secure Ingress (all TLS termination should occur here for K8s dashboard, Prometheus, Grafana)
+4. Previously, all these monitoring applications were exposed as NodePorts. Change back to vanilla ClusterIP since we'll login via domain defined in Ingress
+
+**Permissions related**
+- Best to create more roles (and do the corresponding necessary actions like creating certs). This is to modularize permissions.
+
+**Monitoring related**
+- Currently `Prometheus` and `Grafana` store data locally on disk
+  - Persisting to disk locally on our node means we must be able to tolerate this reduced availability, as well as potential data loss
+- We can either persist to disk via some other means not locally or store in memory 
+  - If in-memory, do a remote-write to logging tools like DataDog, Sumologic <-- **Optimal** for global view ie see metrics for multiple clusters
+
+
+**Storage related**
+- All PersistentVolumes are local
+
+<br>
 
 ## Container runtime
 
@@ -155,14 +182,14 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
    ```
    containerd config default > /etc/containerd/config.toml
    ```
-7. Address the following issues
+7. Address the following issues in the `config.toml`
    1. Installing `containerd` via package managers will disable the cri plugin it uses to interface with `CRI`. We need to enable it.  
       **FIX**
    ```
    Replace line with `disabled_plugins ...` to `enabled_plugins = ["cri"]`
    ```
    2. Need to change the cgroup driver to `systemd` if Linux distrubution is using `systemd` as `init system`. Check what `init system` you're using by doing `man init` .  
-      **NOTE**: `kubelet` and `container runtime` should use same cgroup driver + changing the cgroup driver of a Node that has joined a cluster is sensitive since `kubelet` already created pods using other cgroup driver  
+      **NOTE**: `kubelet` and `container runtime` should use same `cgroup` driver + changing the `cgroup` driver of a Node that has joined a cluster is sensitive since `kubelet` already created pods using other cgroup driver  
       **FIX**
    ```
    Replace line with `SystemdCgroup ...` to `SystemdCgroup = true`
@@ -260,13 +287,15 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
 
 <br>
 
-### Label roles of worker nodes (Only run in masters)
+### Label roles of worker nodes (Run in any machine with kubectl and sufficent permissions)
 
 1. For each worker node, do this:
    ```
    kubectl label node <worker-node-name>  node-role.kubernetes.io/worker=worker
    ```
 2. Check node status with `kubectl get no`
+
+<br>
 
 ## Install Helm (wherever you want it to be)
   ```
@@ -301,7 +330,7 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
        - --metric-resolution=15s
 
    metricsScraper:
-   enabled: true: true
+   enabled: true
    ```
 3. Install chart (It's good practice to save to a local file and then `kubectl apply -f`. We'll skip it for brevity)
    ```
@@ -334,7 +363,7 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
    ```
    kubectl -n monitoring create token super-dashboard-user
    ```
-   ![Dashboard-login-screen](image-1.png)
+   ![Dashboard-login-screen](assets/image-1.png)
 
 <br>
 
@@ -514,9 +543,10 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
    ```
    kubectl expose service grafana --type=NodePort --target-port=3000 -n monitoring --name=grafana-ext
    ```
+<br>
 
 ## Linking Prometheus to Grafana
 1. Refer [here](https://prometheus.io/docs/visualization/grafana/#creating-a-prometheus-data-source)
 2. Create dashboard by clicking on `Dashboards` in sidebar > `New` on the right side > `Import`
    1. Specify a dashboard id, I went for `315`. It looks like this
-      ![Alt text](image-2.png)
+      ![Alt text](assets/image-2.png)
